@@ -5,10 +5,19 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { toast } from "sonner";
 
-export default function RegisterForm() {
+interface RegisterResponse {
+  message?: string;
+  success?: boolean;
+}
+
+type RegisterFormProps = {
+  onRegistered?: () => void; // <-- add this prop
+};
+
+export default function RegisterForm({ onRegistered }: RegisterFormProps) {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -18,17 +27,22 @@ export default function RegisterForm() {
   const router = useRouter();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
+
     try {
-      const res = await axios.post("/api/register", formData);
-      toast.success("Registration successful!");
-      router.push("/login"); // or keep in tab
-    } catch (err: any) {
+      const res = await axios.post<RegisterResponse>("/api/register", formData);
+
+      toast.success(res.data?.message || "Registration successful!");
+      onRegistered?.();
+      // router.push("");
+    } catch (error) {
+      const err = error as AxiosError<{ message?: string }>;
       toast.error(err.response?.data?.message || "Registration failed");
     } finally {
       setLoading(false);

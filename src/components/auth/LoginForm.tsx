@@ -5,8 +5,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { toast } from "sonner";
+
+interface LoginResponse {
+  message?: string;
+  token?: string;
+  success?: boolean;
+}
 
 export default function LoginForm() {
   const [email, setEmail] = useState("");
@@ -14,14 +20,24 @@ export default function LoginForm() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
+
     try {
-      const res = await axios.post("/api/login", { email, password });
-      toast.success("Login successful!");
+      const res = await axios.post<LoginResponse>("/api/login", {
+        email,
+        password,
+      });
+
+      toast.success(res.data?.message || "Login successful!");
+
+      // Optionally store JWT/token if your backend returns it
+      if (res.data?.token) localStorage.setItem("authToken", res.data.token);
+
       router.push("/dashboard");
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as AxiosError<{ message?: string }>;
       toast.error(err.response?.data?.message || "Login failed");
     } finally {
       setLoading(false);

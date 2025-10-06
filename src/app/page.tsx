@@ -37,7 +37,7 @@ export default function AuthPage() {
               <LoginForm />
             </TabsContent>
             <TabsContent value="register">
-              <RegisterForm />
+              <RegisterForm onRegistered={() => setTab("login")} />
             </TabsContent>
           </Tabs>
         </CardContent>
