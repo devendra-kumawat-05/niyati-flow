@@ -6,12 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import LoginForm from "@/components/auth/LoginForm";
 import RegisterForm from "@/components/auth/RegisterForm";
+import { ModeToggle } from "@/components/ui/theme-toggle";
 
 export default function AuthPage() {
   const [tab, setTab] = useState("login");
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-50">
+      <ModeToggle/>
       <Card className="w-[400px]">
         <CardHeader>
           <Image
