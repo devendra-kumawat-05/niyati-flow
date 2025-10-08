@@ -14,7 +14,7 @@ interface RegisterResponse {
 }
 
 type RegisterFormProps = {
-  onRegistered?: () => void; // <-- add this prop
+  onRegistered?: () => void;
 };
 
 export default function RegisterForm({ onRegistered }: RegisterFormProps) {
@@ -40,7 +40,7 @@ export default function RegisterForm({ onRegistered }: RegisterFormProps) {
 
       toast.success(res.data?.message || "Registration successful!");
       onRegistered?.();
-      // router.push("");
+      // router.push("/login"); // redirect to login
     } catch (error) {
       const err = error as AxiosError<{ message?: string }>;
       toast.error(err.response?.data?.message || "Registration failed");
@@ -82,7 +82,7 @@ export default function RegisterForm({ onRegistered }: RegisterFormProps) {
       </div>
       <Button
         type="submit"
-        className="w-full cursor-pointer"
+        className="w-full cursor-pointer bg-[#ffb34e]"
         disabled={loading}
       >
         {loading ? "Registering..." : "Register"}

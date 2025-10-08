@@ -11,7 +11,7 @@ import { toast } from "sonner";
 interface LoginResponse {
   message?: string;
   token?: string;
-  success?: boolean;
+  user?: { id: number; name: string; email: string };
 }
 
 export default function LoginForm() {
@@ -32,10 +32,10 @@ export default function LoginForm() {
 
       toast.success(res.data?.message || "Login successful!");
 
-      // Optionally store JWT/token if your backend returns it
+      // Store JWT token
       if (res.data?.token) localStorage.setItem("authToken", res.data.token);
 
-      router.push("/chat");
+      router.push("/chat"); // redirect after login
     } catch (error) {
       const err = error as AxiosError<{ message?: string }>;
       toast.error(err.response?.data?.message || "Login failed");
