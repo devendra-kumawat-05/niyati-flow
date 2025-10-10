@@ -3,6 +3,7 @@ import { chatRouter } from './chat';
 import { aiRouter } from './ai';
 import { aiMockRouter } from './ai-mock';
 import { aiGeminiRouter } from './ai-gemini';
+import { authRouter } from './auth';
 
 // Determine which AI to use based on environment variables
 const getAIRouter = () => {
@@ -28,6 +29,7 @@ const getAIRouter = () => {
 export const appRouter = router({
   chat: chatRouter,
   ai: getAIRouter(),
+  auth: authRouter,
 });
 
 export type AppRouter = typeof appRouter;
