@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Toaster } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/ui/theme-provider";
+import { TRPCProvider } from "@/components/trpc-provider";
 
 export const metadata: Metadata = {
   title: "Niyati Flow",
@@ -17,14 +18,16 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={cn("min-h-screen bg-background antialiased")}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          {children}
-        </ThemeProvider>
+        <TRPCProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            {children}
+          </ThemeProvider>
+        </TRPCProvider>
         <Toaster richColors position="top-right" />
       </body>
     </html>

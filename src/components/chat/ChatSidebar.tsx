@@ -15,15 +15,24 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { trpc } from "@/lib/trpc";
 
 export default function ChatSidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
-  const chatHistory = [
-    { id: 1, title: "Product Manager Guide" },
-    { id: 2, title: "Design Principles" },
-    { id: 3, title: "UX Research Notes" },
-  ];
+  const { data: conversations, isLoading } = trpc.chat.getConversations.useQuery();
+  const createConversation = trpc.chat.createConversation.useMutation();
+
+  const filteredConversations = conversations?.filter((conversation: any) =>
+    conversation.title.toLowerCase().includes(searchTerm.toLowerCase())
+  ) || [];
+
+  const handleNewChat = () => {
+    createConversation.mutate({
+      title: "New Chat",
+    });
+  };
 
   return (
     <motion.aside
@@ -57,7 +66,11 @@ export default function ChatSidebar() {
 
       {/* New Chat */}
       <div className="p-4 border-b border-zinc-800">
-        <Button className="w-full bg-[#ffb34e] hover:bg-[#ffb34e]/90 text-black hover:text-black/90 cursor-pointer flex items-center justify-center">
+        <Button
+          className="w-full bg-[#ffb34e] hover:bg-[#ffb34e]/90 text-black hover:text-black/90 cursor-pointer flex items-center justify-center"
+          onClick={handleNewChat}
+          disabled={createConversation.isLoading}
+        >
           <Plus size={16} className="mr-1" />
           {!collapsed && "New Chat"}
         </Button>
@@ -78,6 +91,8 @@ export default function ChatSidebar() {
             <Input
               placeholder="Search chats..."
               className="pl-8 border-zinc-700 text-black"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
         )}
@@ -85,16 +100,20 @@ export default function ChatSidebar() {
 
       {/* Chat History */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {chatHistory.map((chat) => (
-          <div
-            key={chat.id}
-            className={`p-3 rounded-lg cursor-pointer hover:bg-zinc-200 transition ${
-              collapsed ? "hidden" : ""
-            }`}
-          >
-            {chat.title}
-          </div>
-        ))}
+        {isLoading ? (
+          <div className="text-sm text-black/60">Loading conversations...</div>
+        ) : (
+          filteredConversations.map((conversation: any) => (
+            <div
+              key={conversation.id}
+              className={`p-3 rounded-lg cursor-pointer hover:bg-zinc-200 transition ${
+                collapsed ? "hidden" : ""
+              }`}
+            >
+              {conversation.title}
+            </div>
+          ))
+        )}
       </div>
 
       <Separator className="bg-zinc-800" />

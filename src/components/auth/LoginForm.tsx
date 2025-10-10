@@ -32,8 +32,10 @@ export default function LoginForm() {
 
       toast.success(res.data?.message || "Login successful!");
 
-      // Store JWT token
-      if (res.data?.token) localStorage.setItem("authToken", res.data.token);
+      // Set JWT token as HTTP-only cookie
+      if (res.data?.token) {
+        document.cookie = `token=${res.data.token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Strict`;
+      }
 
       router.push("/chat"); // redirect after login
     } catch (error) {
