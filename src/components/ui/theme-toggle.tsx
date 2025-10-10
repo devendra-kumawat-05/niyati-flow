@@ -1,40 +1,50 @@
-"use client";
+"use client"
 
-import * as React from "react";
-import { Moon, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
+import * as React from "react"
+import { useTheme } from "next-themes"
+import { Sun, Moon } from "lucide-react"
+import { motion } from "framer-motion"
+import { cn } from "@/lib/utils"
 
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+export function ThemeToggleSlider() {
+  const { theme, setTheme } = useTheme()
+  const isDark = theme === "dark"
 
-export function ModeToggle() {
-  const { setTheme } = useTheme();
+  const toggleTheme = () => {
+    setTheme(isDark ? "light" : "dark")
+  }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon">
-          <Sun className="h-[1.2rem] w-[1.2rem] scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
-          <Moon className="absolute h-[1.2rem] w-[1.2rem] scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
-          <span className="sr-only">Toggle theme</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>
-          Light
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
-          Dark
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>
-          System
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+    <button
+      onClick={toggleTheme}
+      className={cn(
+        "relative flex items-center w-11 h-5 rounded-full transition-colors duration-300",
+        isDark ? "bg-slate-800" : "bg-yellow-300"
+      )}
+    >
+      {/* Icons */}
+      <Sun
+        className={cn(
+          "absolute left-1 h-4 w-4 text-yellow-500 transition-all",
+          isDark ? "opacity-0 scale-0" : "opacity-100 scale-100"
+        )}
+      />
+      <Moon
+        className={cn(
+          "absolute right-1 h-4 w-4 text-slate-200 transition-all",
+          isDark ? "opacity-100 scale-100" : "opacity-0 scale-0"
+        )}
+      />
+
+      {/* Sliding knob */}
+      <motion.div
+        layout
+        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+        className={cn(
+          "absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-md",
+          isDark && "translate-x-6"
+        )}
+      />
+    </button>
+  )
 }

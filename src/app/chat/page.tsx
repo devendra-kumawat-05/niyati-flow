@@ -6,6 +6,7 @@ import ChatSidebar from "@/components/chat/ChatSidebar";
 import ChatMessage from "@/components/chat/ChatMessage";
 import ChatInput from "@/components/chat/ChatInput";
 import { trpc } from "@/lib/trpc";
+import { ThemeToggleSlider } from "@/components/ui/theme-toggle";
 
 export default function ChatPage() {
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
@@ -93,8 +94,8 @@ export default function ChatPage() {
       {/* Chat Area */}
       <div className="flex flex-col flex-1">
         <header className="p-4 border-b border-zinc-800 text-lg font-semibold">
-          <div className="flex items-center gap-2 my-auto">
-            <Image
+          <div className="flex items-center gap-2 my-auto justify-between">
+            <div className="flex items-center gap-2 my-auto "><Image
               src="/logo.png"
               alt="Niyati Flow Logo"
               height={40}
@@ -102,7 +103,8 @@ export default function ChatPage() {
               className="rounded-full"
             />
 
-            <h2 className="font-semibold text-lg">Niyati Flow</h2>
+            <h2 className="font-semibold text-lg">Niyati Flow</h2></div>
+            <ThemeToggleSlider/>
           </div>
         </header>
 
