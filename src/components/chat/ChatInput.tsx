@@ -52,14 +52,14 @@ export default function ChatInput({
   }, [message]);
 
   return (
-    <div className={cn("w-full border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60", className)}>
+    <div className={cn("w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60", className)}>
       <form onSubmit={handleSubmit} className="relative">
         <div className="relative flex items-center px-4 py-2">
          
 
           {/* Message input */}
-          <div className="relative flex-1">
-            <div className="relative">
+          <div className="relative flex-1 ">
+            <div className="relative border border-muted rounded-md p-1">
               <textarea
                 ref={textareaRef}
                 rows={1}
@@ -67,7 +67,7 @@ export default function ChatInput({
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={isSending ? 'Sending message...' : 'Type a message...'}
-                className="w-full max-h-32 min-h-[40px] resize-none bg-background px-4 py-2.5 pr-12 text-sm focus-visible:outline-none disabled:opacity-50"
+                className="w-full max-h-32 min-h-[40px]  resize-none bg-background px-4 py-2.5 pr-12 text-sm focus-visible:outline-none disabled:opacity-50"
                 disabled={isSending}
                 style={{
                   scrollbarWidth: 'thin',

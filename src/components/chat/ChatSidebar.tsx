@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,40 +23,67 @@ import {
 } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useToast } from "@/components/ui/use-toast";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import Image from "next/image";
+import { motion, AnimatePresence } from "framer-motion";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import {
   Plus,
   Search,
   LogOut,
   ChevronLeft,
   ChevronRight,
-  User,
+  User as UserIcon,
   MessageSquare,
-  Sparkles,
-  Bot,
+  Menu,
+  X,
+  MessageSquarePlus,
 } from "lucide-react";
+import Image from "next/image";
 
-interface UserData {
-  id: number;
+interface User {
+  id: string;
   email: string;
   name: string | null;
   image?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface Conversation {
   id: string;
   title: string;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type ConversationWithMessages = Conversation & {
+  messages: Array<{
+    id: string;
+    content: string;
+    role: 'user' | 'assistant';
+    createdAt: string;
+    updatedAt: string;
+  }>;
+};
+
+interface ApiError extends Error {
+  code?: string;
+  details?: Record<string, unknown>;
 }
 
 export default function ChatSidebar() {
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
+  const searchParams = useSearchParams();
+  const isMobile = useMediaQuery('(max-width: 768px)');
+  
+  const [collapsed, setCollapsed] = useState(isMobile);
   const [searchTerm, setSearchTerm] = useState("");
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'default' | 'destructive' } | null>(null);
+  const [isNewChatLoading, setIsNewChatLoading] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Fetch user data
   const { data: user, isLoading: isLoadingUser } = api.auth.getUser.useQuery(undefined, {
@@ -65,9 +92,34 @@ export default function ChatSidebar() {
   });
 
   // Fetch conversations
-  const { data: conversations = [], isLoading: isLoadingConversations, refetch: refetchConversations } = api.chat.getConversations.useQuery();
-  const isLoading = isLoadingUser || isLoadingConversations;
+  const { 
+    data: conversations = [], 
+    isLoading: isLoadingConversations, 
+    refetch: refetchConversations 
+  } = api.chat.getConversations.useQuery();
   
+  const isLoading = isLoadingUser || isLoadingConversations;
+  const selectedConversationId = searchParams.get('conversationId');
+  
+  // Auto-close sidebar on mobile when route changes
+  useEffect(() => {
+    if (isMobile) {
+      setIsMobileMenuOpen(false);
+    }
+  }, [router, isMobile]);
+  
+  // Toggle mobile menu
+  const toggleMobileMenu = () => {
+    setIsMobileMenuOpen(!isMobileMenuOpen);
+  };
+  
+  // Close mobile menu
+  const closeMobileMenu = () => {
+    if (isMobile) {
+      setIsMobileMenuOpen(false);
+    }
+  };
+
   // Create new conversation
   const createConversation = api.chat.createConversation.useMutation({
     onSuccess: (newConversation) => {
@@ -76,298 +128,388 @@ export default function ChatSidebar() {
     },
   });
   
-  // Handle new chat button click
-  const handleNewChat = () => {
-    createConversation.mutate({
-      title: 'New Chat',
-    });
+  const handleNewChat = async () => {
+    try {
+      setIsNewChatLoading(true);
+      const newConversation = await createConversation.mutateAsync({
+        title: 'New Chat',
+      });
+      router.push(`/chat?conversationId=${newConversation.id}`);
+      refetchConversations();
+      toast.success("New chat created!");
+    } catch (error) {
+      console.error("Error creating new chat:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create a new conversation. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsNewChatLoading(false);
+    }
   };
+
+  // Keyboard shortcut for new chat (Ctrl+Shift+N or Cmd+Shift+N)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        handleNewChat();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleLogout = async () => {
     try {
       setIsLoggingOut(true);
       const response = await fetch('/api/auth/logout', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
       });
       
-      if (response.ok) {
-        // Clear any client-side data
-        if (typeof window !== 'undefined') {
-          localStorage.clear();
-          sessionStorage.clear();
-        }
-        window.location.href = '/';
-      } else {
-        throw new Error('Logout failed');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.message || 'Failed to sign out. Please try again.'
+        );
       }
+      
+      // Clear any client-side state
+      if (typeof window !== 'undefined') {
+        localStorage.clear();
+        sessionStorage.clear();
+      }
+      
+      // Redirect to login page with full page reload to clear all state
+      window.location.href = '/login';
+      
     } catch (error) {
-      setToast({
-        message: 'Failed to log out. Please try again.',
-        type: 'destructive',
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      console.error('Logout failed:', error);
+      
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
       });
-      setShowLogoutDialog(false);
     } finally {
       setIsLoggingOut(false);
+      setShowLogoutDialog(false);
     }
   };
 
-  const confirmLogout = () => {
-    setShowLogoutDialog(true);
-  };
+  const confirmLogout = () => setShowLogoutDialog(true);
+  const cancelLogout = () => setShowLogoutDialog(false);
 
-  const cancelLogout = () => {
-    setShowLogoutDialog(false);
-  };
-  
   const handleProfileClick = () => {
     router.push('/profile');
   };
 
-  // Effect to handle initial conversation selection from URL
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const conversationId = urlParams.get('conversationId');
-    if (conversationId && !isLoading) {
-      // Already handled by the parent component
-    }
-  }, [isLoading]);
-
   return (
-    <div 
-      className={cn(
-        "flex flex-col h-full bg-background border-r border-border transition-all duration-300 overflow-hidden",
-        collapsed ? 'w-16' : 'w-64'
-      )}
-    >
-      {/* Header Section */}
-      <div className="flex items-center justify-between p-3 border-b border-border">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setCollapsed(!collapsed)}
-                className="text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              >
-                {collapsed ? (
-                  <ChevronRight className="h-5 w-5" />
-                ) : (
-                  <ChevronLeft className="h-5 w-5" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {collapsed ? 'Expand' : 'Collapse'} sidebar
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        
-        {!collapsed && (
-          <div className="flex items-center gap-2 flex-1">
-            <Image
-              src="/logo.png"
-              alt="Niyati Flow"
-              height={28}
-              width={28}
-              className="rounded-full"
-            />
-            <h1 className="font-semibold text-lg text-foreground">Niyati Flow</h1>
-          </div>
-        )}
+    <>
+      {/* New Chat Button - Desktop */}
+      <div className={cn(
+        "fixed bottom-6 right-6 z-40 transition-transform duration-200",
+        collapsed ? "translate-x-0" : "translate-x-0"
+      )}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={handleNewChat}
+              disabled={isNewChatLoading}
+              className="rounded-full w-14 h-14 p-0 shadow-lg bg-primary hover:bg-primary/90 transition-all duration-200 flex items-center justify-center"
+              aria-label="New chat"
+            >
+              {isNewChatLoading ? (
+                <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <MessageSquarePlus className="h-6 w-6" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left" sideOffset={10}>
+            <p>New Chat (Shift+{navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+N)</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
 
-      {/* Search Bar */}
-      {!collapsed && (
-        <div className="px-3 py-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search conversations..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 bg-background/50 backdrop-blur-sm"
-            />
-          </div>
+      {/* Mobile Menu Button */}
+      {isMobile && (
+        <div className="fixed top-4 left-4 z-40 md:hidden">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleMobileMenu}
+            className="h-10 w-10 rounded-full shadow-md"
+          >
+            {isMobileMenuOpen ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <Menu className="h-5 w-5" />
+            )}
+          </Button>
         </div>
       )}
+      
+      {/* Sidebar */}
+      <motion.div 
+        className={cn(
+          "fixed md:relative flex flex-col h-full bg-background/95 backdrop-blur-sm border-r border-border z-30",
+          collapsed ? "w-16" : "w-72",
+          isMobile ? (isMobileMenuOpen ? "left-0" : "-left-full") : "left-0"
+        )}
+        initial={false}
+        animate={{ 
+          left: isMobile ? (isMobileMenuOpen ? 0 : '-100%') : 0,
+          width: collapsed ? '3rem' : 'auto'
+        }}
+        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-border bg-background/80">
+          <div className="flex items-center justify-between"><Image src="/logo.png" alt="Logo" width={30} height={30} />
+          <motion.h1 
+            className={cn(
+              "text-xl font-bold whitespace-nowrap overflow-hidden bg-gradient-to-r from-primary to-yellow-600 bg-clip-text text-transparent",
+              collapsed ? "w-0 opacity-0" : "w-auto opacity-100"
+            )}
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ 
+              opacity: collapsed ? 0 : 1,
+              x: collapsed ? -10 : 0,
+              width: collapsed ? 0 : 'auto'
+            }}
+            transition={{ duration: 0.2 }}
+          >
+            
+            Niyati Flow
+          </motion.h1></div>
+          <div className="flex items-center gap-2">
+            
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setCollapsed(!collapsed)}
+              className="h-8 w-8 hidden md:flex"
+            >
+              {collapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronLeft className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
 
-      {/* Chat History */}
-      <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="py-2">
-            {isLoading ? (
-              <div className="space-y-2 px-3">
-                {[...Array(5)].map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full rounded-md" />
-                ))}
+        {/* Search Bar */}
+        <AnimatePresence>
+          {!collapsed && (
+            <motion.div 
+              className="p-3 border-b border-border bg-background/80"
+              initial={{ opacity: 0, height: 0, padding: 0 }}
+              animate={{ opacity: 1, height: 'auto', padding: '0.75rem' }}
+              exit={{ opacity: 0, height: 0, padding: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="Search conversations..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 h-10 rounded-lg bg-muted/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/20"
+                />
               </div>
-            ) : conversations.length === 0 ? (
-              <div className="flex flex-col items-center justify-center p-6 text-center">
-                <MessageSquare className="h-8 w-8 text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">No conversations yet</p>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="mt-2 text-primary"
-                  onClick={handleNewChat}
+              
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Chat List */}
+        <div className="flex-1 overflow-hidden">
+          <ScrollArea className="h-full">
+            <div className="p-2 space-y-1">
+              {isLoading ? (
+                Array(5).fill(0).map((_, i) => (
+                  <Skeleton key={i} className="h-12 w-full rounded-lg mb-1" />
+                ))
+              ) : conversations.length === 0 ? (
+                <motion.div 
+                  className="flex flex-col items-center justify-center p-6 text-center"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
                 >
-                  Start a new chat
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-1 px-1.5">
-                {conversations
-                  .filter(conv => 
-                    conv.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    searchTerm === ''
-                  )
-                  .map((conversation) => {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const isActive = urlParams.get('conversationId') === String(conversation.id);
-                    
-                    return (
-                      <TooltipProvider key={conversation.id}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              className={cn(
-                                "w-full text-left p-2.5 rounded-md text-sm transition-colors flex items-center gap-2 group",
-                                isActive 
-                                  ? 'bg-accent text-accent-foreground' 
-                                  : 'text-foreground/80 hover:bg-accent/50 hover:text-accent-foreground'
-                              )}
-                              onClick={() => {
-                                router.push(`/chat?conversationId=${conversation.id}`);
-                              }}
-                            >
-                              <MessageSquare className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                              {!collapsed && (
-                                <span className="truncate flex-1">
-                                  {conversation.title}
-                                </span>
-                              )}
-                              {isActive && !collapsed && (
-                                <div className="w-1.5 h-1.5 rounded-full bg-primary ml-auto" />
-                              )}
-                            </button>
-                          </TooltipTrigger>
-                          {collapsed && (
-                            <TooltipContent side="right">
-                              <p className="max-w-[200px] truncate">{conversation.title}</p>
-                            </TooltipContent>
+                  <div className="flex items-center justify-center h-16 w-16 rounded-full bg-primary/10 mb-4">
+                    <MessageSquare className="h-6 w-6 text-primary" />
+                  </div>
+                  <h3 className="text-sm font-medium mb-1">No conversations yet</h3>
+                  <p className="text-xs text-muted-foreground mb-4">Start a new chat to begin</p>
+                  <Button
+                    onClick={handleNewChat}
+                    disabled={isNewChatLoading}
+                    className="w-full justify-start gap-2 mb-4 group relative overflow-hidden"
+                  >
+                    <span className="relative z-10 flex items-center">
+                      {isNewChatLoading ? (
+                        <div className="h-4 w-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin mr-2" />
+                      ) : (
+                        <Plus className="h-4 w-4 mr-2 transition-transform group-hover:rotate-90" />
+                      )}
+                      New Chat
+                    </span>
+                    <span className="absolute inset-0 bg-gradient-to-r from-primary/10 to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+                    <span className="ml-auto text-xs text-muted-foreground hidden md:inline-block">
+                      {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Shift+N
+                    </span>
+                  </Button>
+                </motion.div>
+              ) : (
+                <AnimatePresence>
+                  {conversations
+                    .filter(conv => 
+                      conv.title.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
+                    .map((conversation, index) => (
+                      <motion.div
+                        key={conversation.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="relative group"
+                      >
+                        <Button
+                          variant={selectedConversationId === conversation.id ? "secondary" : "ghost"}
+                          className={cn(
+                            "w-full justify-start font-normal h-12 px-3 rounded-lg transition-all duration-200",
+                            selectedConversationId === conversation.id 
+                              ? "bg-accent/80 hover:bg-accent/90 text-accent-foreground shadow-sm" 
+                              : "hover:bg-muted/50"
                           )}
-                        </Tooltip>
-                      </TooltipProvider>
-                    );
-                  })}
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
+                          onClick={() => {
+                            router.push(`/chat?conversationId=${conversation.id}`);
+                            closeMobileMenu();
+                          }}
+                        >
+                          <MessageSquare className={cn(
+                            "h-4 w-4 mr-3 flex-shrink-0",
+                            selectedConversationId === conversation.id 
+                              ? "text-primary" 
+                              : "text-muted-foreground"
+                          )} />
+                          <span className="truncate text-sm">{conversation.title}</span>
+                        </Button>
+                      </motion.div>
+                    ))}
+                </AnimatePresence>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
 
-      {/* User Profile and Actions */}
-      <div className={cn("border-t border-border p-2", collapsed ? 'pt-2' : 'pt-3')}>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 p-2 rounded-md hover:bg-accent/50 transition-colors">
-            <Avatar className="h-8 w-8">
-              <AvatarImage src={user?.image || ''} alt={user?.name || 'User'} />
-              <AvatarFallback className="bg-primary/10 text-primary">
-                {user?.name 
-                  ? user.name.split(' ').map(n => n[0]).join('').toUpperCase()
-                  : user?.email?.charAt(0).toUpperCase() || 'U'}
-              </AvatarFallback>
-            </Avatar>
-            {!collapsed && user && (
-              <div className="overflow-hidden">
-                <p className="text-sm font-medium truncate">{user.name || user.email}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {user.email}
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-1">
+        {/* User Profile */}
+        <div className="p-3 border-t border-border bg-background/80 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="relative group">
+              <Avatar 
+                className={cn(
+                  "h-6 w-6 transition-all duration-200 cursor-pointer",
+                  !collapsed && "ring-2 ring-offset-2 ring-offset-background ring-primary/30"
+                )}
+                onClick={handleProfileClick}
+              >
+                <AvatarImage 
+                  src={user?.image || ''} 
+                  alt={user?.name || 'User'} 
+                  className="object-cover"
+                />
+                <AvatarFallback className="bg-gradient-to-br from-primary/20 to-purple-500/20">
+                  {user?.name ? (
+                    <span className="text-sm font-medium">
+                      {user.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                    </span>
+                  ) : (
+                    <UserIcon className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </AvatarFallback>
+              </Avatar>
+              {!collapsed && (
+                <div className="absolute -right-1 -bottom-1">
+                  <div className="h-3 w-3 rounded-full bg-green-500 border-2 border-background" />
+                </div>
+              )}
+            </div>
+            
+            <AnimatePresence>
+              {!collapsed && (
+                <motion.div 
+                  className="flex-1 min-w-0 overflow-hidden"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <p className="text-sm font-medium truncate">{user?.name || 'User'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user?.email || 'user@example.com'}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    size={collapsed ? "icon" : "sm"}
+                    size="icon"
                     className={cn(
-                      "w-full justify-start gap-2 text-foreground/80 hover:bg-accent/50 hover:text-foreground",
-                      collapsed && "h-9 w-9 mx-auto"
-                    )}
-                    onClick={handleNewChat}
-                  >
-                    <Plus className="h-4 w-4" />
-                    {!collapsed && <span>New Chat</span>}
-                  </Button>
-                </TooltipTrigger>
-                {collapsed && <TooltipContent side="right">New Chat</TooltipContent>}
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size={collapsed ? "icon" : "sm"}
-                    className={cn(
-                      "w-full justify-start gap-2 text-foreground/80 hover:bg-accent/50 hover:text-foreground",
-                      collapsed && "h-9 w-9 mx-auto"
-                    )}
-                    onClick={handleProfileClick}
-                  >
-                    <User className="h-4 w-4" />
-                    {!collapsed && <span>Profile</span>}
-                  </Button>
-                </TooltipTrigger>
-                {collapsed && <TooltipContent side="right">Profile</TooltipContent>}
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size={collapsed ? "icon" : "sm"}
-                    className={cn(
-                      "w-full justify-start gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive",
-                      collapsed && "h-9 w-9 mx-auto"
+                      "h-8 w-8 text-muted-foreground hover:text-foreground transition-colors",
+                      collapsed ? "mx-auto" : ""
                     )}
                     onClick={confirmLogout}
                   >
                     <LogOut className="h-4 w-4" />
-                    {!collapsed && <span>Log out</span>}
                   </Button>
                 </TooltipTrigger>
-                {collapsed && <TooltipContent side="right">Log out</TooltipContent>}
+                <TooltipContent side="right" sideOffset={10}>
+                  <p>Log out</p>
+                </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
         </div>
-      </div>
-
+      </motion.div>
+      
+      {/* Overlay for mobile */}
+      {isMobile && isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-20 md:hidden"
+          onClick={closeMobileMenu}
+        />
+      )}
+      
       {/* Logout Confirmation Dialog */}
       <Dialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Confirm Logout</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to log out? You'll need to sign in again to access your account.
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 mb-4">
+              <LogOut className="h-6 w-6 text-red-600" />
+            </div>
+            <DialogTitle className="text-center text-xl font-semibold">Log out of Niyati AI?</DialogTitle>
+            <DialogDescription className="text-center text-muted-foreground">
+              You'll need to sign in again to access your account.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="mt-4">
+          <DialogFooter className="sm:justify-center gap-3">
             <Button 
               variant="outline" 
               onClick={cancelLogout}
               disabled={isLoggingOut}
+              className="w-full"
             >
               Cancel
             </Button>
@@ -375,52 +517,21 @@ export default function ChatSidebar() {
               variant="destructive" 
               onClick={handleLogout}
               disabled={isLoggingOut}
-              className="ml-2"
+              className="w-full"
             >
-              {isLoggingOut ? 'Logging out...' : 'Logout'}
+              {isLoggingOut ? (
+                <span className="flex items-center gap-2">
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Logging out...
+                </span>
+              ) : 'Log out'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Toast Notification - Using shadcn's useToast hook instead */}
-      {toast && (
-        <div className="fixed bottom-4 right-4 z-50">
-          <div 
-            className={cn(
-              "p-4 rounded-md shadow-lg flex items-center",
-              toast.type === 'destructive'
-                ? 'bg-destructive/10 text-destructive border border-destructive/20'
-                : 'bg-primary/10 text-primary border border-primary/20'
-            )}
-          >
-            <span>{toast.message}</span>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-6 w-6 ml-2 -mr-2 text-current hover:bg-transparent hover:opacity-70"
-              onClick={() => setToast(null)}
-              aria-label="Close"
-            >
-              <span className="sr-only">Close</span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }

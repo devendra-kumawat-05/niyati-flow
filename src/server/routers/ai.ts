@@ -68,7 +68,18 @@ export const aiRouter = router({
         // Send the new message
         const result = await chat.sendMessage(input.message);
         const response = await result.response;
-        const aiResponse = response.text() || "I'm sorry, I couldn't generate a response.";
+        
+        // Get the text from the response parts
+        let aiResponse = "I'm sorry, I couldn't generate a response.";
+        
+        if (response.candidates && response.candidates[0]?.content?.parts) {
+          aiResponse = response.candidates[0].content.parts
+            .map((part: any) => part.text || '')
+            .join('\n')
+            .trim();
+        } else if (response.text) {
+          aiResponse = response.text;
+        }
 
         return {
           response: aiResponse,

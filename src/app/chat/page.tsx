@@ -9,14 +9,13 @@ import ChatMessage from "@/components/chat/ChatMessage";
 import ChatInput from "@/components/chat/ChatInput";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/simple-toast";
+import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import Image from "next/image";
 
 export default function ChatPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { toast } = useToast();
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isSending, setIsSending] = useState(false);
@@ -31,11 +30,7 @@ export default function ChatPage() {
 
   const sendMessage = trpc.chat.sendMessage.useMutation({
     onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to send message",
-        type: "destructive",
-      });
+      toast.error(error.message || "Failed to send message");
     },
   });
 
@@ -45,21 +40,13 @@ export default function ChatPage() {
       router.push(`/chat?conversationId=${data.id}`);
     },
     onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create conversation",
-        type: "destructive",
-      });
+      toast.error(error.message || "Failed to create conversation");
     },
   });
 
   const generateAIResponse = trpc.ai.generateResponse.useMutation({
     onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to generate AI response",
-        type: "destructive",
-      });
+      toast.error(error.message || "Failed to generate AI response");
     },
   });
 
@@ -68,11 +55,9 @@ export default function ChatPage() {
     const conversationId = searchParams.get('conversationId');
     if (conversationId) {
       setSelectedConversationId(Number(conversationId));
-    } else if (isInitialLoad) {
-      createConversation.mutate({ title: 'New Chat' });
     }
     setIsInitialLoad(false);
-  }, [searchParams, isInitialLoad, createConversation]);
+  }, [searchParams, isInitialLoad]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -89,7 +74,10 @@ export default function ChatPage() {
   };
 
   const handleSend = async (message: string) => {
-    if (!selectedConversationId) return;
+    if (!selectedConversationId) {
+      toast.error("No conversation selected");
+      return;
+    }
 
     try {
       setIsSending(true);
@@ -101,23 +89,41 @@ export default function ChatPage() {
         role: 'user',
       });
 
-      // Generate AI response
-      const aiResponse = await generateAIResponse.mutateAsync({
-        conversationId: selectedConversationId,
-        message: message,
-      });
+      // Refresh messages to show the user's message
+      await refetch();
 
-      // Save AI response
-      await sendMessage.mutateAsync({
-        conversationId: selectedConversationId,
-        content: aiResponse.response,
-        role: 'assistant',
-      });
+      try {
+        // Generate AI response
+        const aiResponse = await generateAIResponse.mutateAsync({
+          conversationId: selectedConversationId,
+          message: message,
+        });
 
-      // Refresh messages
-      if (refetch) await refetch();
-      
+        // Save AI response
+        await sendMessage.mutateAsync({
+          conversationId: selectedConversationId,
+          content: aiResponse.response,
+          role: 'assistant',
+        });
+
+        // Refresh messages to show the AI's response
+        await refetch();
+      } catch (aiError) {
+        console.error("AI Response Error:", aiError);
+        const errorMessage = aiError instanceof Error ? aiError.message : 'Failed to generate AI response';
+        
+        // Save error message to chat
+        await sendMessage.mutateAsync({
+          conversationId: selectedConversationId,
+          content: `I'm sorry, I encountered an error: ${errorMessage}`,
+          role: 'assistant',
+        });
+        
+        // Refresh messages to show the error
+        await refetch();
+      }
     } catch (error: unknown) {
+      console.error("Send Message Error:", error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to process your message';
       toast({
         title: "Error",

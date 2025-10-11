@@ -1,8 +1,13 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { ToastProvider } from '@/components/ui/simple-toast';
+import { Toaster } from 'sonner';
 
 export function Providers({ children }: { children: ReactNode }) {
-  return <ToastProvider>{children}</ToastProvider>;
+  return (
+    <>
+      {children}
+      <Toaster position="top-center" richColors />
+    </>
+  );
 }
