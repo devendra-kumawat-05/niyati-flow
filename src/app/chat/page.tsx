@@ -1,128 +1,238 @@
 "use client";
 
-import Image from "next/image";
-import React, { useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
+import { Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import ChatMessage from "@/components/chat/ChatMessage";
 import ChatInput from "@/components/chat/ChatInput";
 import { trpc } from "@/lib/trpc";
-import { ThemeToggleSlider } from "@/components/ui/theme-toggle";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/simple-toast";
+import { Skeleton } from "@/components/ui/skeleton";
+import Image from "next/image";
 
 export default function ChatPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { toast } = useToast();
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { data: conversation, isLoading: conversationLoading, refetch } = trpc.chat.getConversation.useQuery(
-    { conversationId: selectedConversationId ?? -1 },
-    { enabled: !!selectedConversationId && (selectedConversationId ?? -1) > 0 }
-  );
+  // TRPC Queries and Mutations
+  const { data: conversation, isLoading: conversationLoading, refetch } = 
+    trpc.chat.getConversation.useQuery(
+      { conversationId: selectedConversationId || 0 },
+      { enabled: !!selectedConversationId }
+    );
 
-  const sendMessage = trpc.chat.sendMessage.useMutation();
-  const createConversation = trpc.chat.createConversation.useMutation();
+  const sendMessage = trpc.chat.sendMessage.useMutation({
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send message",
+        type: "destructive",
+      });
+    },
+  });
 
-  const generateAIResponse = trpc.ai.generateResponse.useMutation();
+  const createConversation = trpc.chat.createConversation.useMutation({
+    onSuccess: (data) => {
+      setSelectedConversationId(data.id);
+      router.push(`/chat?conversationId=${data.id}`);
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create conversation",
+        type: "destructive",
+      });
+    },
+  });
+
+  const generateAIResponse = trpc.ai.generateResponse.useMutation({
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate AI response",
+        type: "destructive",
+      });
+    },
+  });
+
+  // Handle conversation selection from URL
+  useEffect(() => {
+    const conversationId = searchParams.get('conversationId');
+    if (conversationId) {
+      setSelectedConversationId(Number(conversationId));
+    } else if (isInitialLoad) {
+      createConversation.mutate({ title: 'New Chat' });
+    }
+    setIsInitialLoad(false);
+  }, [searchParams, isInitialLoad, createConversation]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [conversation?.messages]);
+
+  const handleNewChat = () => {
+    createConversation.mutate({ title: 'New Chat' });
+  };
+
+  const handleSelectConversation = (id: number) => {
+    setSelectedConversationId(id);
+    router.push(`/chat?conversationId=${id}`);
+  };
 
   const handleSend = async (message: string) => {
-    let conversationId = selectedConversationId;
-    
-    if (!conversationId) {
-      // Create a new conversation if none selected
-      const newConversation = await createConversation.mutateAsync({
-        title: message.slice(0, 50) + (message.length > 50 ? "..." : ""),
-      });
-      conversationId = newConversation.id;
-      setSelectedConversationId(conversationId);
-    }
-
-    // Send the user message
-    await sendMessage.mutateAsync({
-      conversationId: conversationId!,
-      content: message,
-      role: "user",
-    });
-
-    // Refetch to show user message
-    await refetch();
+    if (!selectedConversationId) return;
 
     try {
+      setIsSending(true);
+
+      // Save user message
+      await sendMessage.mutateAsync({
+        conversationId: selectedConversationId,
+        content: message,
+        role: 'user',
+      });
+
       // Generate AI response
       const aiResponse = await generateAIResponse.mutateAsync({
-        conversationId: conversationId!,
+        conversationId: selectedConversationId,
         message: message,
       });
 
-      // Save AI response to the conversation
+      // Save AI response
       await sendMessage.mutateAsync({
-        conversationId: conversationId!,
+        conversationId: selectedConversationId,
         content: aiResponse.response,
-        role: "assistant",
+        role: 'assistant',
       });
 
-      // Refetch to show AI response
-      await refetch();
-    } catch (error: any) {
-      console.error("Error generating AI response:", error);
+      // Refresh messages
+      if (refetch) await refetch();
       
-      // Extract error message
-      const errorMessage = error?.message || error?.data?.message || "I'm sorry, I encountered an error while generating a response. Please try again.";
-      
-      // Fallback message if AI generation fails
-      await sendMessage.mutateAsync({
-        conversationId: conversationId!,
-        content: `⚠️ ${errorMessage}`,
-        role: "assistant",
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to process your message';
+      toast({
+        title: "Error",
+        description: errorMessage,
+        type: "destructive",
       });
-
-      // Refetch to show error message
-      await refetch();
+    } finally {
+      setIsSending(false);
     }
   };
 
-  // Refetch conversation when selectedConversationId changes
-  React.useEffect(() => {
-    if (selectedConversationId) {
-      refetch();
-    }
-  }, [selectedConversationId, refetch]);
-
-  const messages = conversation?.messages || [];
-
   return (
-    <div className="flex h-screen bg-white text-black">
-      {/* Sidebar */}
-      <ChatSidebar />
+    <div className="flex h-screen overflow-hidden">
+      {/* Sidebar - Fixed */}
+      <div className="w-64 border-r h-full flex-shrink-0 overflow-y-auto">
+        <ChatSidebar
+          selectedConversationId={selectedConversationId}
+          onSelectConversation={handleSelectConversation}
+          onCreateNewChat={handleNewChat}
+        />
+      </div>
 
-      {/* Chat Area */}
-      <div className="flex flex-col flex-1">
-        <header className="p-4 border-b border-zinc-800 text-lg font-semibold">
-          <div className="flex items-center gap-2 my-auto justify-between">
-            <div className="flex items-center gap-2 my-auto "><Image
-              src="/logo.png"
-              alt="Niyati Flow Logo"
-              height={40}
-              width={40}
-              className="rounded-full"
-            />
-
-            <h2 className="font-semibold text-lg">Niyati Flow</h2></div>
-            <ThemeToggleSlider/>
+      {/* Main content */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Messages area - Scrollable */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-4xl mx-auto w-full px-4 py-6 space-y-6">
+            {conversationLoading && !conversation ? (
+              // Loading skeleton
+              <div className="space-y-6">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <Skeleton className="h-8 w-8 rounded-full" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-16 w-full" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : conversation?.messages?.length ? (
+              // Messages list
+              <div className="space-y-6">
+                {conversation.messages.map((message) => (
+                  <ChatMessage
+                    key={message.id}
+                    message={{
+                      id: message.id,
+                      content: message.content,
+                      role: message.role,
+                      createdAt: message.createdAt,
+                      isTyping: false
+                    }}
+                  />
+                ))}
+                {isSending && (
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                      <Image src="/logo.png" alt="Logo" width={20} height={20} />
+                    </div>
+                    <div className="flex-1">
+                      <div className="bg-muted text-foreground rounded-2xl rounded-tl-none p-3 text-sm max-w-xs">
+                        <div className="flex space-x-1 items-center">
+                          <div className="w-2 h-2 rounded-full bg-foreground/50 animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <div className="w-2 h-2 rounded-full bg-foreground/50 animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <div className="w-2 h-2 rounded-full bg-foreground/50 animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            ) : (
+              // Empty state
+              <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                  <Image src="/logo.png" alt="Logo" width={40} height={40} />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">How can I help you today?</h2>
+                <p className="text-muted-foreground max-w-md">
+                  Ask me anything about job interviews, career advice, or anything else on your mind.
+                </p>
+                <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
+                  {[
+                    'What are the best strategies to get hired?',
+                    'How to impress the interviewer?',
+                    'How to pass OrationAI Interview?',
+                    'Tell me about yourself?',
+                  ].map((suggestion, i) => (
+                    <Button
+                      key={i}
+                      variant="outline"
+                      className="h-auto py-3 justify-start text-left"
+                      onClick={() => handleSend(suggestion)}
+                    >
+                      <Search className="h-4 w-4 mr-2 text-muted-foreground" />
+                      {suggestion}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </header>
+        </div>
 
-        <main className="flex-1 overflow-y-auto p-6 space-y-6">
-          {conversationLoading ? (
-            <div className="text-black/60">Loading conversation...</div>
-          ) : messages.length === 0 ? (
-            <div className="text-black/60 text-center">
-              Start a conversation by sending a message below.
-            </div>
-          ) : (
-            messages.map((msg: any) => (
-              <ChatMessage key={msg.id} role={msg.role} content={msg.content} />
-            ))
-          )}
-        </main>
-
-        <ChatInput onSend={handleSend} />
+        {/* Message input - Fixed at bottom */}
+        <div className="border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
+          <div className="max-w-4xl mx-auto">
+            <ChatInput
+              onSend={handleSend}
+              isSending={isSending}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
